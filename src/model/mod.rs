@@ -11,6 +11,7 @@ pub mod event;
 pub mod footnote;
 pub mod header_footer;
 pub mod image;
+pub mod memo;
 pub mod page;
 pub mod paragraph;
 pub mod path;

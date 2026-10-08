@@ -1852,6 +1852,7 @@ mod issue_1151_cell_picture_insert_tests {
             },
             paragraphs: vec![Paragraph::default()],
             raw_stream: None,
+            memo_lists: Vec::new(),
         });
         let mut core = DocumentCore::new_empty();
         core.set_document(doc);
@@ -2551,6 +2552,7 @@ mod issue_1151_v2_tac_toggle_tests {
             },
             paragraphs: vec![Paragraph::default()],
             raw_stream: None,
+            memo_lists: Vec::new(),
         });
         let mut core = DocumentCore::new_empty();
         core.set_document(doc);
@@ -3630,6 +3632,7 @@ mod issue_1280_textbox_creation_tests {
             },
             paragraphs: vec![Paragraph::default()],
             raw_stream: None,
+            memo_lists: Vec::new(),
         });
         let mut core = DocumentCore::new_empty();
         core.set_document(doc);

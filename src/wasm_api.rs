@@ -76,6 +76,21 @@ fn deferred_pagination_result_json(result: DeferredPaginationStepResult) -> Stri
     .to_string()
 }
 
+/// 지금 시각 (unix ms). 메모 작성 시각용.
+fn now_unix_ms() -> f64 {
+    #[cfg(target_arch = "wasm32")]
+    {
+        js_sys::Date::now()
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis() as f64)
+            .unwrap_or(0.0)
+    }
+}
+
 /// [Task #1161] 클립보드 API 의 cellPath JSON 인자 파싱.
 /// 빈 문자열 또는 `"[]"` 면 본문(빈 경로), 그 외에는
 /// `[{"controlIndex","cellIndex","cellParaIndex"}, ...]` 를 파싱한다.
@@ -4679,6 +4694,60 @@ impl HwpDocument {
     #[wasm_bindgen(js_name = getFieldList)]
     pub fn get_field_list(&self) -> String {
         self.get_field_list_json()
+    }
+
+    /// 메모(주석) 목록.
+    ///
+    /// 반환: `[{id, text, author, createdAt, location, startCharIdx, endCharIdx, anchorText}]`
+    /// — `location` 은 `getFieldList` 와 같은 꼴(셀 안이면 `path`), 메모 번호 순.
+    #[wasm_bindgen(js_name = getMemoList)]
+    pub fn get_memo_list(&self) -> String {
+        self.get_memo_list_json()
+    }
+
+    /// 한 문단 안의 글자 범위 `[startCharIdx, endCharIdx)` 에 메모를 단다.
+    ///
+    /// `cellPathJson` 이 빈 문자열/`"[]"` 이면 본문 문단 `paraIdx`, 아니면 그 문단 안
+    /// 셀 경로(`[{controlIndex, cellIndex, cellParaIndex}]`). 작성 시각은 지금.
+    /// 반환: `{"ok":true,"id":N,"startCharIdx":s,"endCharIdx":e}`
+    #[wasm_bindgen(js_name = insertMemo)]
+    #[allow(clippy::too_many_arguments)]
+    pub fn insert_memo_api(
+        &mut self,
+        section_idx: u32,
+        para_idx: u32,
+        cell_path_json: &str,
+        start_char_idx: u32,
+        end_char_idx: u32,
+        text: &str,
+        author: &str,
+    ) -> Result<String, JsValue> {
+        let path = parse_cell_path_arg(cell_path_json)?;
+        let filetime =
+            crate::document_core::queries::memo_query::filetime_from_unix_ms(now_unix_ms());
+        self.insert_memo(
+            section_idx as usize,
+            para_idx as usize,
+            &path,
+            start_char_idx as usize,
+            end_char_idx as usize,
+            text,
+            author,
+            filetime,
+        )
+        .map_err(|e| e.into())
+    }
+
+    /// 메모 글을 바꾼다. 반환 `{"ok":true}`.
+    #[wasm_bindgen(js_name = updateMemo)]
+    pub fn update_memo_api(&mut self, id: u32, text: &str) -> Result<String, JsValue> {
+        self.update_memo(id, text).map_err(|e| e.into())
+    }
+
+    /// 메모를 지운다 (걸려 있던 글자는 남는다). 반환 `{"ok":true}`.
+    #[wasm_bindgen(js_name = deleteMemo)]
+    pub fn delete_memo_api(&mut self, id: u32) -> Result<String, JsValue> {
+        self.delete_memo(id).map_err(|e| e.into())
     }
 
     /// field_id로 필드 값을 조회한다.

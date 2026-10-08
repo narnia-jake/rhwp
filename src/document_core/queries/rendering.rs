@@ -7717,6 +7717,7 @@ mod tests {
                 ..Default::default()
             }],
             raw_stream: None,
+            memo_lists: Vec::new(),
         });
 
         let mut core = DocumentCore::new_empty();
@@ -7881,6 +7882,7 @@ mod tests {
                 section_def,
                 paragraphs: vec![Paragraph::default()],
                 raw_stream: None,
+                memo_lists: Vec::new(),
             }
         }
 
@@ -7951,6 +7953,7 @@ mod tests {
                 section_def,
                 paragraphs: vec![Paragraph::default()],
                 raw_stream: None,
+                memo_lists: Vec::new(),
             }
         }
 
@@ -8014,6 +8017,7 @@ mod tests {
                 section_def,
                 paragraphs: vec![Paragraph::default()],
                 raw_stream: None,
+                memo_lists: Vec::new(),
             }
         }
 
@@ -8071,6 +8075,7 @@ mod tests {
             section_def: SectionDef::default(),
             paragraphs: vec![Paragraph::default()],
             raw_stream: None,
+            memo_lists: Vec::new(),
         });
         core.set_document(document);
         core.paginate();

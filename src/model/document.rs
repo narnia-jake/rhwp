@@ -236,6 +236,9 @@ pub struct Section {
     /// 원본 BodyText 레코드 스트림 바이트 (직렬화 시 원본 복원용)
     /// 편집 시 None으로 초기화하여 재직렬화 유도
     pub raw_stream: Option<Vec<u8>>,
+    /// HWP5 구역 끝 MEMO_LIST 블록 중 아직 메모 필드에 붙지 않은 것.
+    /// 파서가 채우고 `model::memo::attach_memo_lists` 가 필드로 옮긴다 — 남는 것은 앵커 없는 메모.
+    pub memo_lists: Vec<crate::model::memo::MemoList>,
 }
 
 /// 구역 정의 (HWPTAG_CTRL_HEADER - 'secd')

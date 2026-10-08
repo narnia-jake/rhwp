@@ -634,6 +634,7 @@ fn parse_sections_strict(
         }
     }
 
+    crate::model::memo::attach_memo_lists(&mut sections);
     Ok(sections)
 }
 
@@ -717,6 +718,7 @@ fn parse_hwp_with_lenient(
             }
         }
     }
+    crate::model::memo::attach_memo_lists(&mut sections);
 
     // BinData 로드 시도
     let bin_data_content = load_bin_data_content_lenient(

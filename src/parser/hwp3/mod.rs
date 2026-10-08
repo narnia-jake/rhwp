@@ -3956,7 +3956,7 @@ fn parse_hwp3_inner(
     let section = Section {
         section_def,
         paragraphs,
-        raw_stream: None,
+        raw_stream: None,        memo_lists: Vec::new(),
     };
     doc.sections.push(section);
 

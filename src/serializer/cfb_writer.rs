@@ -15,6 +15,7 @@ use crate::model::bin_data::{BinData, BinDataType, MAX_BIN_DATA_BYTES};
 use crate::model::document::{Document, Preview};
 use crate::password_crypto::{encrypt_hwp5_stream, HWP5_ENCRYPT_VERSION};
 
+#[cfg(test)]
 use super::body_text::serialize_section;
 use super::content_loss::{
     ContentLoss, ContentLossReason, ContentLossReport, SerializedDocument, SerializedFormat,
@@ -112,8 +113,13 @@ fn serialize_hwp_inner(
 
     // 3. BodyText 섹션별 직렬화
     let mut section_bytes_list = Vec::new();
-    for section in &doc.sections {
-        let section_bytes = serialize_section(section);
+    // 메모 본문은 문서 전체 것을 마지막 구역 끝에 모은다.
+    let memo_lists = crate::model::memo::document_memo_lists(&doc.sections);
+    let last_section = doc.sections.len().saturating_sub(1);
+    for (i, section) in doc.sections.iter().enumerate() {
+        let tail: &[crate::model::memo::MemoList] =
+            if i == last_section { &memo_lists } else { &[] };
+        let section_bytes = crate::serializer::body_text::serialize_section_with_memos(section, tail);
         section_bytes_list.push(section_bytes);
     }
 

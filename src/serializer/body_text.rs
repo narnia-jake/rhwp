@@ -22,8 +22,19 @@ use crate::model::paragraph::{CharShapeRef, ColumnBreakType, LineSeg, Paragraph,
 use crate::parser::record::Record;
 use crate::parser::tags;
 
-/// Section을 레코드 바이너리 스트림으로 직렬화
+/// Section을 레코드 바이너리 스트림으로 직렬화 (이 구역의 메모만 꼬리에 붙인다)
 pub fn serialize_section(section: &Section) -> Vec<u8> {
+    if let Some(ref raw) = section.raw_stream {
+        return raw.clone();
+    }
+    let memo_lists = crate::model::memo::document_memo_lists(std::slice::from_ref(section));
+    serialize_section_with_memos(section, &memo_lists)
+}
+
+/// Section 직렬화. `memo_lists` 는 구역 끝에 붙일 메모 블록 — 문서 저장 때는
+/// 마지막 구역에 문서 전체 메모를, 나머지 구역에는 빈 목록을 준다 (HWP5 는 메모를
+/// 마지막 구역 끝에 모은다).
+pub fn serialize_section_with_memos(section: &Section, memo_lists: &[crate::model::memo::MemoList]) -> Vec<u8> {
     // 원본 스트림이 있으면 그대로 반환 (완벽한 라운드트립)
     if let Some(ref raw) = section.raw_stream {
         return raw.clone();
@@ -34,7 +45,6 @@ pub fn serialize_section(section: &Section) -> Vec<u8> {
     super::control::reset_form_order_counter();
 
     let mut records = Vec::new();
-    let memo_lists = collect_memo_lists(section);
     let has_memo_tail = !memo_lists.is_empty();
     let para_count = section.paragraphs.len();
     // [Issue #1915] IR 계약 폴백: 첫 문단에 Control::SectionDef 가 없는 IR(HWP3 파서
@@ -74,7 +84,7 @@ pub fn serialize_section(section: &Section) -> Vec<u8> {
         serialize_paragraph_with_msb(para_ref, 0, is_last, &mut records);
     }
     if has_memo_tail {
-        serialize_memo_tail(section, &memo_lists, &mut records);
+        serialize_memo_tail(section, memo_lists, &mut records);
     }
     serialize_master_page_tail(section, &mut records);
     write_records(&records)
@@ -101,22 +111,6 @@ fn serialize_master_page_tail(section: &Section, records: &mut Vec<Record>) {
     {
         super::control::serialize_master_page(master_page, 1, records);
     }
-}
-
-fn collect_memo_lists(section: &Section) -> Vec<(u32, Vec<Paragraph>)> {
-    let mut memo_lists = Vec::new();
-    for para in &section.paragraphs {
-        for ctrl in &para.controls {
-            if let Control::Field(field) = ctrl {
-                if field.field_type == crate::model::control::FieldType::Memo
-                    && !field.memo_paragraphs.is_empty()
-                {
-                    memo_lists.push((field.memo_index, field.memo_paragraphs.clone()));
-                }
-            }
-        }
-    }
-    memo_lists
 }
 
 fn serialize_memo_tail(

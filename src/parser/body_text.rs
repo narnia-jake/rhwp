@@ -52,7 +52,11 @@ impl std::error::Error for BodyTextError {}
 ///
 /// data: 압축 해제된(배포용은 복호화+해제된) 레코드 바이트 스트림
 pub fn parse_body_text_section(data: &[u8]) -> Result<Section, BodyTextError> {
-    let records = Record::read_all(data).map_err(|e| BodyTextError::RecordError(e.to_string()))?;
+    let all_records =
+        Record::read_all(data).map_err(|e| BodyTextError::RecordError(e.to_string()))?;
+    // 구역 끝 메모 블록(MEMO_LIST…)은 마지막 문단의 자식처럼 보이므로 먼저 떼어 낸다.
+    let (body_end, memo_lists, after_memos) = split_memo_tail(&all_records);
+    let records = &all_records[..body_end];
 
     let mut section = Section::default();
     let mut idx = 0;
@@ -88,8 +92,26 @@ pub fn parse_body_text_section(data: &[u8]) -> Result<Section, BodyTextError> {
     // HWP 바이너리에서 확장 바탕쪽(마지막 쪽, 임의 쪽)은 Section 스트림 끝에 저장되지만,
     // level=1로 태그되어 마지막 문단의 자식으로 오인됨.
     // 전체 레코드를 재스캔하여 마지막 PARA_HEADER(level=0) 이후의 LIST_HEADER(level=1)를 추출.
+    if !memo_lists.is_empty() {
+        // 한컴은 메모 블록을 빈 '뿌리' 문단 아래에 둔다. 직렬화기가 저장 때 다시 만들므로
+        // 모델에서는 뺀다 (안 빼면 저장할 때마다 빈 문단이 하나씩 는다).
+        let is_root = section
+            .paragraphs
+            .last()
+            .is_some_and(|p| p.text.is_empty() && p.controls.is_empty());
+        if is_root && section.paragraphs.len() > 1 {
+            section.paragraphs.pop();
+        }
+        section.memo_lists = memo_lists;
+    }
+
     {
-        let all_records = Record::read_all(data).unwrap_or_default();
+        // 메모 블록은 빼고, 메모 블록 뒤에 남은 레코드(확장 바탕쪽)는 이어 붙여 훑는다.
+        let all_records: Vec<Record> = records
+            .iter()
+            .chain(after_memos.iter())
+            .cloned()
+            .collect();
         let last_para0_idx = all_records
             .iter()
             .rposition(|r| r.tag_id == tags::HWPTAG_PARA_HEADER && r.level == 0);
@@ -122,6 +144,71 @@ pub fn parse_body_text_section(data: &[u8]) -> Result<Section, BodyTextError> {
     Ok(section)
 }
 
+/// 구역 끝의 메모 블록을 떼어 낸다.
+///
+/// HWP5 는 메모 본문을 `MEMO_LIST(u32 번호)` → `LIST_HEADER(문단 수)` → 문단들 순서로,
+/// 모두 level ≥ 1 로 구역 맨 끝에 둔다. 첫 MEMO_LIST 뒤로 level 0 레코드가 하나도 없을
+/// 때만 메모 꼬리로 본다.
+///
+/// 반환: (본문 레코드 끝, 메모 블록들, 메모 블록 사이·뒤에 남은 다른 레코드)
+fn split_memo_tail(records: &[Record]) -> (usize, Vec<crate::model::memo::MemoList>, Vec<Record>) {
+    let Some(first) = records
+        .iter()
+        .position(|r| r.tag_id == tags::HWPTAG_MEMO_LIST)
+    else {
+        return (records.len(), Vec::new(), Vec::new());
+    };
+    if records[first..].iter().any(|r| r.level == 0) {
+        return (records.len(), Vec::new(), Vec::new());
+    }
+
+    let mut lists = Vec::new();
+    let mut rest = Vec::new();
+    let mut idx = first;
+    while idx < records.len() {
+        let record = &records[idx];
+        if record.tag_id != tags::HWPTAG_MEMO_LIST {
+            rest.push(record.clone());
+            idx += 1;
+            continue;
+        }
+        let level = record.level;
+        let id = record
+            .data
+            .get(0..4)
+            .map(|b| u32::from_le_bytes([b[0], b[1], b[2], b[3]]))
+            .unwrap_or(0);
+        idx += 1;
+        let mut wanted = usize::MAX;
+        if idx < records.len()
+            && records[idx].tag_id == tags::HWPTAG_LIST_HEADER
+            && records[idx].level == level
+        {
+            let lh = &records[idx].data;
+            if lh.len() >= 2 {
+                wanted = u16::from_le_bytes([lh[0], lh[1]]) as usize;
+            }
+            idx += 1;
+        }
+        // 같은 level 의 PARA_HEADER 와 그 자식들을 문단 수만큼
+        let start = idx;
+        let mut count = 0;
+        while idx < records.len()
+            && count < wanted
+            && records[idx].tag_id == tags::HWPTAG_PARA_HEADER
+            && records[idx].level == level
+        {
+            idx += 1;
+            while idx < records.len() && records[idx].level > level {
+                idx += 1;
+            }
+            count += 1;
+        }
+        lists.push((id, parse_paragraph_list(&records[start..idx])));
+    }
+    (first, lists, rest)
+}
+
 /// 문단 레코드 그룹에서 Paragraph 구성
 ///
 /// records[0] = PARA_HEADER, records[1..] = 자식 레코드
@@ -132,6 +219,7 @@ pub fn parse_paragraph(records: &[Record]) -> Result<Paragraph, BodyTextError> {
 
     let mut para = parse_para_header(&records[0].data);
     let base_level = records[0].level;
+    let mut open_fields: Vec<(usize, usize)> = Vec::new();
 
     let mut i = 1;
     while i < records.len() {
@@ -145,7 +233,9 @@ pub fn parse_paragraph(records: &[Record]) -> Result<Paragraph, BodyTextError> {
 
         match record.tag_id {
             tags::HWPTAG_PARA_TEXT => {
-                let (text, offsets, field_ranges, tab_ext) = parse_para_text(&record.data);
+                let (text, offsets, field_ranges, tab_ext, open) =
+                    parse_para_text_with_open(&record.data);
+                open_fields = open;
                 para.text = text;
                 para.char_offsets = offsets;
                 para.field_ranges = field_ranges;
@@ -215,7 +305,32 @@ pub fn parse_paragraph(records: &[Record]) -> Result<Paragraph, BodyTextError> {
         i += 1;
     }
 
+    close_open_memo_fields(&mut para, &open_fields);
     Ok(para)
+}
+
+/// 다음 문단에서 끝나는 메모는 HWP5 에서 끝 표시가 다른 문단에 있어 범위가 안 잡힌다.
+/// 그대로 두면 다시 저장할 때 시작만 있고 끝이 없는 필드가 된다. 이 문단 끝에서 닫는다.
+fn close_open_memo_fields(para: &mut Paragraph, open_fields: &[(usize, usize)]) {
+    let text_len = para.text.chars().count();
+    let mut added = false;
+    for &(start, control_idx) in open_fields {
+        if let Some(Control::Field(field)) = para.controls.get(control_idx) {
+            if crate::model::memo::is_memo_field(field) {
+                para.field_ranges.push(FieldRange {
+                    start_char_idx: start,
+                    end_char_idx: text_len,
+                    control_idx,
+                    end_field_id: 0,
+                });
+                added = true;
+            }
+        }
+    }
+    if added {
+        para.field_ranges
+            .sort_by_key(|r| (r.start_char_idx, r.control_idx));
+    }
 }
 
 /// PARA_HEADER 바이너리 데이터 파싱
@@ -269,6 +384,21 @@ fn parse_para_header(data: &[u8]) -> Paragraph {
 /// - 확장 컨트롤 문자: 8 code unit (16바이트) 차지
 /// - 인라인 컨트롤 문자: 1 code unit (2바이트) 차지
 fn parse_para_text(data: &[u8]) -> (String, Vec<u32>, Vec<FieldRange>, Vec<[u16; 7]>) {
+    let (text, offsets, ranges, tab_ext, _) = parse_para_text_with_open(data);
+    (text, offsets, ranges, tab_ext)
+}
+
+/// `parse_para_text` + 문단 안에서 닫히지 않은 필드 시작 (start_char_idx, control_idx).
+#[allow(clippy::type_complexity)]
+fn parse_para_text_with_open(
+    data: &[u8],
+) -> (
+    String,
+    Vec<u32>,
+    Vec<FieldRange>,
+    Vec<[u16; 7]>,
+    Vec<(usize, usize)>,
+) {
     let mut text = String::new();
     let mut char_offsets: Vec<u32> = Vec::new();
     let mut field_ranges: Vec<FieldRange> = Vec::new();
@@ -398,7 +528,7 @@ fn parse_para_text(data: &[u8]) -> (String, Vec<u32>, Vec<FieldRange>, Vec<[u16;
         }
     }
 
-    (text, char_offsets, field_ranges, tab_extended)
+    (text, char_offsets, field_ranges, tab_extended, field_stack)
 }
 
 /// extended 컨트롤 문자 여부 (CTRL_HEADER 레코드가 있는 컨트롤)

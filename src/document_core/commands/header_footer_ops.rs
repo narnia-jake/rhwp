@@ -1119,6 +1119,7 @@ mod tests {
             },
             paragraphs: vec![Paragraph::default()],
             raw_stream: None,
+            memo_lists: Vec::new(),
         };
         doc.sections.push(section);
         let mut core = DocumentCore::new_empty();
@@ -1686,6 +1687,7 @@ mod tests {
             },
             paragraphs: vec![Paragraph::default()],
             raw_stream: None,
+            memo_lists: Vec::new(),
         };
         // text_width = 28504 - 4252 - 4252 = 20000 HWPUNIT (≈266.7px) — formatting.rs의
         // 셀 재현 테스트와 같은 축척.

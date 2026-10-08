@@ -43,7 +43,7 @@ pub(crate) fn into_document(mut source: HmlSource) -> Result<Document, HmlError>
         document.sections.push(Section {
             section_def,
             paragraphs,
-            raw_stream: None,
+            raw_stream: None,            memo_lists: Vec::new(),
         });
     }
     document.doc_properties.section_count = document.sections.len() as u16;

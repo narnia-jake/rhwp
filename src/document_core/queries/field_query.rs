@@ -2003,7 +2003,7 @@ pub(crate) fn write_ctrl_data_name(
 }
 
 /// FieldLocation을 JSON으로 변환
-fn field_location_json(loc: &FieldLocation) -> String {
+pub(crate) fn field_location_json(loc: &FieldLocation) -> String {
     if loc.nested_path.is_empty() {
         format!(
             "{{\"sectionIndex\":{},\"paraIndex\":{}}}",
@@ -2073,7 +2073,7 @@ fn para_at_location<'a>(core: &'a DocumentCore, location: &FieldLocation) -> Opt
     Some(para)
 }
 
-fn field_range_bounds(core: &DocumentCore, fi: &FieldInfo) -> Option<(usize, usize)> {
+pub(crate) fn field_range_bounds(core: &DocumentCore, fi: &FieldInfo) -> Option<(usize, usize)> {
     let para = para_at_location(core, &fi.location)?;
     let range = para.field_ranges.get(fi.field_range_index)?;
     Some((range.start_char_idx, range.end_char_idx))
@@ -2143,7 +2143,7 @@ impl DocumentCore {
     }
 }
 
-fn collect_max_field_id(para: &Paragraph, max_id: &mut u32) {
+pub(crate) fn collect_max_field_id(para: &Paragraph, max_id: &mut u32) {
     for ctrl in &para.controls {
         match ctrl {
             Control::Field(field) if field.field_id > *max_id => {
