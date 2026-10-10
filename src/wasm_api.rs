@@ -4744,6 +4744,12 @@ impl HwpDocument {
         self.update_memo(id, text).map_err(|e| e.into())
     }
 
+    /// 메모 작성자를 바꾼다. 반환 `{"ok":true}`.
+    #[wasm_bindgen(js_name = setMemoAuthor)]
+    pub fn set_memo_author_api(&mut self, id: u32, author: &str) -> Result<String, JsValue> {
+        self.set_memo_author(id, author).map_err(|e| e.into())
+    }
+
     /// 메모를 지운다 (걸려 있던 글자는 남는다). 반환 `{"ok":true}`.
     #[wasm_bindgen(js_name = deleteMemo)]
     pub fn delete_memo_api(&mut self, id: u32) -> Result<String, JsValue> {

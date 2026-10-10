@@ -165,6 +165,29 @@ impl DocumentCore {
         Ok(r#"{"ok":true}"#.to_string())
     }
 
+    /// 메모 작성자를 바꾼다 (번호·작성 시각은 그대로). 반환 `{"ok":true}`.
+    pub fn set_memo_author(&mut self, id: u32, author: &str) -> Result<String, HwpError> {
+        let mut hit: Option<usize> = None;
+        memo::for_each_paragraph_mut(&mut self.document.sections, &mut |si, para| {
+            for control in &mut para.controls {
+                if let Control::Field(field) = control {
+                    if hit.is_none() && memo::is_memo_field(field) && memo::memo_id(field) == id {
+                        let filetime = memo::memo_filetime(field).unwrap_or(FILETIME_UNIX_EPOCH);
+                        field.command = memo::build_memo_command(id, filetime, author);
+                        hit = Some(si);
+                    }
+                }
+            }
+        });
+        let si = hit.ok_or_else(|| HwpError::InvalidField(format!("메모 {id} 없음")))?;
+        // 작성자는 앵커(필드 command)에 있다 — 앵커 구역을 다시 쓴다. 조판은 바뀌지 않는다.
+        if let Some(section) = self.document.sections.get_mut(si) {
+            section.raw_stream = None;
+        }
+        self.after_memo_change(None);
+        Ok(r#"{"ok":true}"#.to_string())
+    }
+
     /// 메모를 지운다. 걸려 있던 본문 글자는 그대로 둔다. 반환 `{"ok":true}`.
     pub fn delete_memo(&mut self, id: u32) -> Result<String, HwpError> {
         let mut hit: Option<usize> = None;
@@ -395,6 +418,8 @@ mod tests {
         );
 
         again.update_memo(1, "고친 메모").unwrap();
+        again.set_memo_author(1, "새 작성자").unwrap();
+        assert!(again.set_memo_author(99, "x").is_err());
         again.delete_memo(2).unwrap();
         assert!(again.delete_memo(99).is_err());
         let bytes = again.export_hwp_native().unwrap();
@@ -402,6 +427,8 @@ mod tests {
         let v = list(&third);
         assert_eq!(v.as_array().unwrap().len(), 1);
         assert_eq!(v[0]["text"], "고친 메모");
+        assert_eq!(v[0]["author"], "새 작성자");
+        assert_eq!(v[0]["createdAt"], 1_760_000_000_000u64, "작성 시각은 그대로");
         assert_eq!(
             third.document.sections[0].paragraphs[0].text,
             "가나다라마바사"
